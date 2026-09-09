@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: JDK ${{ matrix.java }} build and deterministic tests
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ["21", "25"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.1.0"
+      - name: Build and test
+        run: gradle clean test --warning-mode=fail
+
+  gate:
+    name: CI Gate
+    if: always()
+    needs: test
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Confirm green matrix
+        shell: bash
+        run: |
+          test "${{ needs.test.result }}" = "success"
