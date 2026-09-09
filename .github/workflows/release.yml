@@ -1,0 +1,176 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "src/**"
+      - "README.md"
+      - "CHANGELOG.md"
+      - "RELEASE_NOTES.md"
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Release package validation
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle 9.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.1.0"
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="0.0.0-pr.${{ github.event.pull_request.number }}"
+          fi
+
+          if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid release version: ${VERSION}" >&2
+            exit 1
+          fi
+
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "Release version: ${VERSION}"
+
+      - name: Build, test, and generate Maven publication
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          gradle clean test jar sourcesJar generatePomFileForMavenJavaPublication \
+            -PreleaseVersion="${VERSION}" \
+            --warning-mode=fail
+
+      - name: Assemble reviewed release artifacts
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          cp "build/libs/karzoun-synclattice-${VERSION}.jar" artifacts/
+          cp "build/libs/karzoun-synclattice-${VERSION}-sources.jar" artifacts/
+          cp build/publications/mavenJava/pom-default.xml "artifacts/karzoun-synclattice-${VERSION}.pom"
+
+          jar tf "artifacts/karzoun-synclattice-${VERSION}.jar"
+          jar tf "artifacts/karzoun-synclattice-${VERSION}-sources.jar"
+
+          (
+            cd artifacts
+            sha256sum \
+              "karzoun-synclattice-${VERSION}.jar" \
+              "karzoun-synclattice-${VERSION}-sources.jar" \
+              "karzoun-synclattice-${VERSION}.pom" \
+              > SHA256SUMS.txt
+          )
+          cat artifacts/SHA256SUMS.txt
+
+      - name: Upload reviewed release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: synclattice-release-${{ steps.version.outputs.version }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release and Maven package
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Checkout release metadata
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 21 and GitHub Maven credentials
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Download reviewed release artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: synclattice-release-${{ steps.version.outputs.version }}
+          path: artifacts
+
+      - name: Verify checksums before publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd artifacts
+          sha256sum --check SHA256SUMS.txt
+
+      - name: Deploy exact reviewed artifacts to GitHub Maven Packages
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mvn -B -ntp deploy:deploy-file \
+            -Dfile="artifacts/karzoun-synclattice-${VERSION}.jar" \
+            -Dsources="artifacts/karzoun-synclattice-${VERSION}-sources.jar" \
+            -DpomFile="artifacts/karzoun-synclattice-${VERSION}.pom" \
+            -DrepositoryId=github \
+            -Durl="https://maven.pkg.github.com/mkarson1997/karzoun-synclattice" \
+            -DgeneratePom=false
+
+      - name: Attest release JARs
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: artifacts/*.jar
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "${GITHUB_REF_NAME}" artifacts/* \
+            --title "Karzoun SyncLattice ${GITHUB_REF_NAME}" \
+            --notes-file RELEASE_NOTES.md
