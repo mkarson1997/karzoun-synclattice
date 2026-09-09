@@ -9,12 +9,13 @@ import com.karzoun.synclattice.model.Operation
 import com.karzoun.synclattice.model.RegisterWrite
 import com.karzoun.synclattice.model.SetAdd
 import com.karzoun.synclattice.model.SetRemove
+import com.karzoun.synclattice.sync.SyncPeer
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 class Replica(
     val actor: String,
-) {
+) : SyncPeer {
     init {
         require(actor.isNotBlank()) { "actor must not be blank" }
     }
@@ -44,14 +45,16 @@ class Replica(
         operation
     }
 
-    suspend fun applyRemote(operation: Operation): Boolean = mutex.withLock {
+    override suspend fun applyRemote(operation: Operation): Boolean = mutex.withLock {
         applyLocked(operation)
     }
 
-    suspend fun knownDots(): Set<Dot> = mutex.withLock { log.knownDots() }
+    override suspend fun knownDots(): Set<Dot> = mutex.withLock { log.knownDots() }
 
-    suspend fun operationsMissingFrom(known: Set<Dot>, limit: Int): List<Operation> =
+    override suspend fun operationsMissingFrom(known: Set<Dot>, limit: Int): List<Operation> =
         mutex.withLock { log.missingFrom(known, limit) }
+
+    suspend fun observedDots(element: String): Set<Dot> = mutex.withLock { set.observedDots(element) }
 
     suspend fun snapshot(): ReplicaSnapshot = mutex.withLock {
         ReplicaSnapshot(

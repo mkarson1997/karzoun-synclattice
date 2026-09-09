@@ -10,4 +10,6 @@ Please report suspected vulnerabilities privately through GitHub's security repo
 
 ## Current boundary
 
-SyncLattice v0.1 core is an in-process convergence engine. It does not yet parse untrusted network input or provide authentication, authorization, encryption, durable storage, or a network service. Future transport and persistence milestones require explicit input bounds and threat modeling before release.
+SyncLattice currently processes in-process operation objects and local SQLite files. The SQLite layer enables foreign keys, full synchronous durability, WAL journaling, and a bounded busy timeout, but it does not provide encryption at rest or protection from an attacker who can replace the database file.
+
+There is no authentication, authorization, network encryption, or untrusted network decoder in the current milestone. Those controls belong to the future transport boundary and must be implemented before exposing synchronization to untrusted peers.
