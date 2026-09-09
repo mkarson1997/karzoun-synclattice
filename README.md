@@ -16,6 +16,7 @@ SyncLattice is a local-first replicated sync engine in Kotlin focused on determi
 - replica application that is idempotent under duplicate delivery
 - coroutine-based bounded reconciliation between replicas
 - exact-dot missing-operation discovery, avoiding vector-clock gap ambiguity
+- fixed-seed shuffled replay tests covering mixed concurrent CRDT operations and duplicate delivery
 
 ## SQLite durability
 
@@ -33,7 +34,7 @@ SyncLattice is a local-first replicated sync engine in Kotlin focused on determi
 
 ## Why exact dots for reconciliation?
 
-A vector clock stores the greatest observed counter per actor. If operation `A:3` arrives before `A:2`, a clock value of `A=3` cannot prove that `A:2` was received. SyncLattice therefore uses exact operation IDs when deciding what a peer is missing. Vector clocks remain useful for causal reasoning and conflict metadata.
+A vector clock stores the greatest observed counter per actor. If operation `A:3` arrives before `A:2`, a clock value of `A=3` cannot prove that `A:2` was received. SyncLattice therefore uses exact operation IDs when deciding what a peer is missing. The test suite includes this delivery-hole case directly and verifies that bounded reconciliation still transfers the missing lower-sequence operation. Vector clocks remain useful for causal reasoning and conflict metadata.
 
 ## Important boundaries
 
@@ -47,6 +48,6 @@ Requires JDK 21+ and Gradle 9.1+.
 gradle clean test
 ```
 
-CI runs the deterministic core and file-backed SQLite restart suite on JDK 21 and JDK 25.
+CI runs the deterministic core, shuffled convergence hardening, and file-backed SQLite restart suite on JDK 21 and JDK 25.
 
 See [Architecture](docs/architecture.md), [Security](SECURITY.md), [Contributing](CONTRIBUTING.md), and the [Roadmap](ROADMAP.md).
