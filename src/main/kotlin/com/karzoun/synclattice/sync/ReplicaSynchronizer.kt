@@ -1,15 +1,14 @@
 package com.karzoun.synclattice.sync
 
 import com.karzoun.synclattice.log.OperationLog
-import com.karzoun.synclattice.replica.Replica
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 class ReplicaSynchronizer {
     suspend fun reconcile(
-        left: Replica,
-        right: Replica,
+        left: SyncPeer,
+        right: SyncPeer,
         batchSize: Int = 128,
     ): SyncReport {
         require(batchSize in 1..OperationLog.MAX_BATCH_SIZE) {
